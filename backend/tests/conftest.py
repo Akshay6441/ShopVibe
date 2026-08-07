@@ -1,12 +1,13 @@
-"""Shared pytest fixtures — runs against real PostgreSQL (CI service container)."""
+"""Shared pytest fixtures — real PostgreSQL (CI service container)."""
 import os
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text as _sql, text
 
-# Set environment variables FIRST, before any imports from the app
 DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://user:password@localhost:5432/mydatabase"
+    "DATABASE_URL", "postgresql://user:password@localhost:5432/mydatabase"
 )
-
 os.environ["DATABASE_URL"] = DATABASE_URL
 os.environ.setdefault("SECRET_KEY", "test-secret-key-32chars-for-tests!")
 os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_placeholder")
@@ -38,44 +39,56 @@ from auth import hash_password               # noqa: E402
 
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# Tables to truncate between tests (order matters for FK constraints)
+_TABLES = [
+    "wishlist_items", "reviews", "order_items", "orders",
+    "cart_items", "products", "categories", "users",
+]
+
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
     """Create all tables once per session, drop after all tests."""
-    # Create PostgreSQL ENUM types if using Postgres
     is_postgres = "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL
     if is_postgres:
         _CREATE_ENUMS = """
-DO $$ BEGIN
+DO $ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
         CREATE TYPE userrole AS ENUM ('customer', 'admin');
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'orderstatus') THEN
         CREATE TYPE orderstatus AS ENUM ('pending', 'processing', 'shipped', 'delivered', 'cancelled');
     END IF;
-END $$;
+END $;
 """
         with engine.connect() as conn:
             conn.execute(_sql(_CREATE_ENUMS))
             conn.commit()
-
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
 
 
+@pytest.fixture(scope="function", autouse=True)
+def clean_db():
+    """Truncate all tables before each test for isolation."""
+    with engine.connect() as conn:
+        conn.execute(text(
+            "TRUNCATE {} RESTART IDENTITY CASCADE".format(
+                ", ".join(_TABLES)
+            )
+        ))
+        conn.commit()
+    yield
+
+
 @pytest.fixture(scope="function")
 def db():
-    """Each test gets a clean transaction that is rolled back after."""
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = TestingSessionLocal(bind=connection)
+    session = TestingSessionLocal()
     try:
         yield session
     finally:
         session.close()
-        transaction.rollback()
-        connection.close()
 
 
 @pytest.fixture(scope="function")
@@ -99,9 +112,7 @@ def admin_user(db):
         hashed_password=hash_password("adminpass"),
         role=models.UserRole.admin,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.add(user); db.commit(); db.refresh(user)
     return user
 
 
@@ -112,9 +123,7 @@ def regular_user(db):
         hashed_password=hash_password("alicepass"),
         role=models.UserRole.customer,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.add(user); db.commit(); db.refresh(user)
     return user
 
 
@@ -123,9 +132,7 @@ def category(db):
     cat = models.Category(
         name="Electronics", slug="electronics", description="Gadgets"
     )
-    db.add(cat)
-    db.commit()
-    db.refresh(cat)
+    db.add(cat); db.commit(); db.refresh(cat)
     return cat
 
 
@@ -137,9 +144,7 @@ def product(db, category):
         stock_quantity=10, category_id=category.id,
         brand="TestBrand", is_active=True,
     )
-    db.add(p)
-    db.commit()
-    db.refresh(p)
+    db.add(p); db.commit(); db.refresh(p)
     return p
 
 

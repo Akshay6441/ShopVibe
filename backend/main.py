@@ -25,7 +25,7 @@ stripe.api_key = settings.stripe_secret_key
 
 
 def _init_db() -> None:
-    """Create tables + enum types. Skips Postgres-specific DDL when using SQLite (tests)."""
+    """Create tables + enum types. Skips seeding in test mode."""
     is_postgres = "postgresql" in settings.database_url or "postgres" in settings.database_url
     if is_postgres:
         _CREATE_ENUMS = """
@@ -43,10 +43,12 @@ END $$;
             _conn.commit()
     Base.metadata.create_all(bind=engine)
     _migrate(engine)
-    try:
-        run_seed()
-    except Exception as exc:
-        logger.info("Seed skipped: %s", exc)
+    # Only seed in non-test environments
+    if settings.app_env != "test":
+        try:
+            run_seed()
+        except Exception as exc:
+            logger.info("Seed skipped: %s", exc)
 
 
 def _migrate(db_engine) -> None:
