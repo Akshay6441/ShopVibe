@@ -19,10 +19,16 @@ class OrderStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
+class TicketStatus(str, enum.Enum):
+    open = "open"
+    resolved = "resolved"
+
+
 # Use native_enum=False for SQLite (tests); native enums for Postgres (production)
 _is_sqlite = "sqlite" in os.getenv("DATABASE_URL", "postgresql")
 _UserRoleEnum = Enum(UserRole, native_enum=not _is_sqlite, create_type=not _is_sqlite)
 _OrderStatusEnum = Enum(OrderStatus, native_enum=not _is_sqlite, create_type=not _is_sqlite)
+_TicketStatusEnum = Enum(TicketStatus, native_enum=not _is_sqlite, create_type=not _is_sqlite)
 
 class User(Base):
     __tablename__ = "users"
@@ -40,6 +46,7 @@ class User(Base):
     orders = relationship("Order", back_populates="user")
     reviews = relationship("Review", back_populates="user")
     wishlist_items = relationship("WishlistItem", back_populates="user", cascade="all, delete-orphan")
+    tickets = relationship("SupportTicket", back_populates="user", cascade="all, delete-orphan")
 
 class Category(Base):
     __tablename__ = "categories"
@@ -105,10 +112,13 @@ class Order(Base):
     payment_status = Column(String(50), default="pending")
     stripe_session_id = Column(String(255), nullable=True, index=True)
     notes = Column(Text, nullable=True)
+    is_fraud_flagged = Column(Boolean, default=False, nullable=False)
+    fraud_reason = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     user = relationship("User", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    tickets = relationship("SupportTicket", back_populates="order")
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -131,3 +141,16 @@ class Review(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     user = relationship("User", back_populates="reviews")
     product = relationship("Product", back_populates="reviews")
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    subject = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    status = Column(_TicketStatusEnum, default=TicketStatus.open)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    user = relationship("User", back_populates="tickets")
+    order = relationship("Order", back_populates="tickets")

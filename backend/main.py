@@ -2,16 +2,21 @@ import stripe
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from sqlalchemy import or_, func, text as _sql
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from database import engine, get_db, Base
 import models
 import schemas
+import google_oauth
 from auth import hash_password, verify_password, create_access_token, get_current_user, get_current_admin
+from ai_agent import run_agent
 from config import settings
 from logger import setup_logging, RequestLoggingMiddleware, logger
+from monitoring import MetricsMiddleware, metrics_response
 from seed import seed as run_seed
+from integrations import salesforce
 
 setup_logging("INFO" if settings.app_env == "production" else "DEBUG")
 stripe.api_key = settings.stripe_secret_key
@@ -54,12 +59,13 @@ async def lifespan(app_instance):  # noqa: F841
     yield
 
 app = FastAPI(
-    title="ShopVibe API", version="2.0.0",
-    description="Full-stack e-commerce REST API — FastAPI + PostgreSQL",
+    title="ShopVibe API", version="3.0.0",
+    description="Full-stack e-commerce REST API — FastAPI + PostgreSQL (OAuth, Salesforce, AI, monitoring)",
     docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json",
     lifespan=lifespan,
 )
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.origins_list,
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
@@ -69,6 +75,11 @@ app.add_middleware(
 @app.get("/api/health", tags=["Health"])
 def health():
     return {"status": "ok", "env": settings.app_env}
+
+# ── Monitoring ─────────────────────────────────────────────────────────────────
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    return metrics_response()
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 @app.post("/api/auth/register", response_model=schemas.Token, status_code=201, tags=["Auth"])
@@ -112,6 +123,40 @@ def change_password(payload: schemas.PasswordChange, db: Session = Depends(get_d
     current_user.hashed_password = hash_password(payload.new_password)
     db.commit()
     return {"message": "Password changed successfully"}
+
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+@app.get("/api/auth/google/login", tags=["Auth"])
+def google_login():
+    if not google_oauth.google_configured():
+        raise HTTPException(503, "Google OAuth is not configured (set GOOGLE_CLIENT_ID/SECRET)")
+    state = google_oauth.make_state()
+    return RedirectResponse(google_oauth.authorization_url(state), status_code=302)
+
+@app.get("/api/auth/google/callback", tags=["Auth"])
+def google_callback(code: str, state: str = "", db: Session = Depends(get_db)):
+    if not google_oauth.verify_state(state):
+        logger.warning("Google OAuth callback rejected: invalid state")
+        return RedirectResponse(f"{settings.frontend_url}/login?error=invalid_state", status_code=302)
+    try:
+        tokens = google_oauth.exchange_code(code)
+        info = google_oauth.verify_id_token(tokens["id_token"])
+    except Exception as exc:  # noqa: BLE001 - any OAuth failure just redirects back
+        logger.warning("Google OAuth callback failed: %s", exc)
+        return RedirectResponse(f"{settings.frontend_url}/login?error=google_login_failed", status_code=302)
+    email = info["email"].lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if user is None:
+        user = models.User(
+            name=info.get("name") or email.split("@")[0],
+            email=email,
+            hashed_password=hash_password(google_oauth.google_user_password()),
+        )
+        db.add(user); db.commit(); db.refresh(user)
+        logger.info("New user created via Google: %s", email)
+    elif not user.is_active:
+        return RedirectResponse(f"{settings.frontend_url}/login?error=account_deactivated", status_code=302)
+    token = create_access_token({"sub": str(user.id)})
+    return RedirectResponse(f"{settings.frontend_url}/oauth/callback?token={token}", status_code=302)
 
 # ── Categories ──────────────────────────────────────────────────────────────────
 @app.get("/api/categories", response_model=List[schemas.CategoryOut], tags=["Categories"])
@@ -264,6 +309,7 @@ def create_order(payload: schemas.OrderCreate, db: Session = Depends(get_db),
     db.query(models.CartItem).filter(models.CartItem.user_id == current_user.id).delete()
     db.commit(); db.refresh(order)
     logger.info("Order #%d created by user %d — $%.2f", order.id, current_user.id, total)
+    salesforce.sync_order(order)
     return order
 
 @app.get("/api/orders", response_model=List[schemas.OrderOut], tags=["Orders"])
@@ -411,3 +457,51 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(get_curr
         "total_products": db.query(models.Product).count(),
         "total_users": db.query(models.User).count(),
     }
+
+@app.post("/api/admin/orders/{order_id}/sync-salesforce", tags=["Admin"])
+def admin_sync_order_to_salesforce(order_id: int, db: Session = Depends(get_db),
+                                   _: models.User = Depends(get_current_admin)):
+    if not salesforce.sf_configured():
+        raise HTTPException(503, "Salesforce is not configured (set SF_* env vars)")
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order: raise HTTPException(404, "Order not found")
+    if salesforce.sync_order(order):
+        return {"message": f"Order #{order.id} synced to Salesforce"}
+    raise HTTPException(502, "Salesforce sync failed — see server logs")
+
+# ── Support tickets ────────────────────────────────────────────────────────────
+@app.post("/api/tickets", response_model=schemas.SupportTicketOut, status_code=201, tags=["Tickets"])
+def create_ticket(payload: schemas.SupportTicketCreate, db: Session = Depends(get_db),
+                  current_user: models.User = Depends(get_current_user)):
+    if payload.order_id:
+        order = db.query(models.Order).filter(models.Order.id == payload.order_id).first()
+        if not order or order.user_id != current_user.id:
+            raise HTTPException(404, "Order not found")
+    ticket = models.SupportTicket(user_id=current_user.id, **payload.model_dump())
+    db.add(ticket); db.commit(); db.refresh(ticket)
+    logger.info("Ticket #%d created by user %d", ticket.id, current_user.id)
+    return ticket
+
+@app.get("/api/tickets", response_model=List[schemas.SupportTicketOut], tags=["Tickets"])
+def list_my_tickets(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    qry = db.query(models.SupportTicket)
+    if current_user.role != models.UserRole.admin:
+        qry = qry.filter(models.SupportTicket.user_id == current_user.id)
+    return qry.order_by(models.SupportTicket.created_at.desc()).all()
+
+@app.put("/api/tickets/{ticket_id}", response_model=schemas.SupportTicketOut, tags=["Tickets"])
+def update_ticket(ticket_id: int, payload: schemas.TicketStatusUpdate,
+                  db: Session = Depends(get_db), _: models.User = Depends(get_current_admin)):
+    ticket = db.query(models.SupportTicket).filter(models.SupportTicket.id == ticket_id).first()
+    if not ticket: raise HTTPException(404, "Ticket not found")
+    ticket.status = payload.status
+    db.commit(); db.refresh(ticket)
+    return ticket
+
+# ── Agentic AI ──────────────────────────────────────────────────────────────────
+@app.post("/api/ai/agent", response_model=schemas.AIAgentResponse, tags=["AI"])
+def ai_agent(payload: schemas.AIAgentRequest, db: Session = Depends(get_db),
+             _: models.User = Depends(get_current_admin)):
+    result = run_agent(db, payload.instruction)
+    logger.info("AI agent ran: %d actions for %r", len(result["actions"]), payload.instruction)
+    return result

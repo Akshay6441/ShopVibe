@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { FiMail, FiLock, FiEye, FiEyeOff, FiArrowRight } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import { BACKEND_URL } from '../api/client';
 import useCartStore from '../store/cartStore';
+import GoogleIcon from '../components/common/GoogleIcon';
 import toast from 'react-hot-toast';
 
 export default function LoginPage() {
@@ -75,6 +77,27 @@ export default function LoginPage() {
               className="flex-1 text-xs py-2 rounded-xl bg-gray-50 text-gray-600 font-semibold hover:bg-gray-100 transition-colors border border-gray-100">
               👤 Demo User
             </button>
+          </div>
+
+          {new URLSearchParams(location.search).get('error') && (
+            <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+              Google sign-in failed. Please try again or use your password.
+            </p>
+          )}
+
+          {/* Google OAuth */}
+          <a
+            href={`${BACKEND_URL}/api/auth/google/login`}
+            className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50 transition-colors mb-4"
+          >
+            <GoogleIcon />
+            Continue with Google
+          </a>
+
+          <div className="flex items-center gap-3 mb-4">
+            <span className="flex-1 h-px bg-gray-200" />
+            <span className="text-xs text-gray-400 font-medium">or sign in with email</span>
+            <span className="flex-1 h-px bg-gray-200" />
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">

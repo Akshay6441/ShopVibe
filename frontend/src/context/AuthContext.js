@@ -1,28 +1,36 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { login as apiLogin, register as apiRegister, getMe } from '../api/auth';
-import toast from 'react-hot-toast';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { getMe, login as loginUser, register as registerUser, updateMe } from '../api/auth';
 
 const AuthContext = createContext(null);
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem('user');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
+};
+
+const readStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user')) || null;
+  } catch {
+    return null;
+  }
+};
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(readStoredUser);
   const [loading, setLoading] = useState(true);
 
-  // Verify token on mount
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (!token) { setLoading(false); return; }
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     getMe()
       .then((res) => {
-        setUser(res.data);
-        localStorage.setItem('user', JSON.stringify(res.data));
+        setUser(res.data.user);
+        localStorage.setItem('user', JSON.stringify(res.data.user));
       })
       .catch(() => {
         localStorage.removeItem('token');
@@ -32,49 +40,45 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const res = await apiLogin({ email, password });
-    const { access_token, user: userData } = res.data;
-    localStorage.setItem('token', access_token);
-    localStorage.setItem('user', JSON.stringify(userData));
-    setUser(userData);
-    toast.success(`Welcome back, ${userData.name.split(' ')[0]}!`);
-    return userData;
-  }, []);
-  const register = useCallback(async (name, email, password) => {
-    const res = await apiRegister({ name, email, password });
-    const { access_token, user: userData } = res.data;
-    localStorage.setItem('token', access_token);
-    localStorage.setItem('user', JSON.stringify(userData));
-    setUser(userData);
-    toast.success(`Account created! Welcome, ${userData.name.split(' ')[0]}!`);
-    return userData;
-  }, []);
+  const persist = (res) => {
+    localStorage.setItem('token', res.data.access_token);
+    localStorage.setItem('user', JSON.stringify(res.data.user));
+    setUser(res.data.user);
+    return res;
+  };
 
-  const logout = useCallback(() => {
+  const login = async (email, password) => persist(await loginUser({ email, password }));
+
+  const register = async (name, email, password) =>
+    persist(await registerUser({ name, email, password }));
+
+  const updateUser = async (data) => {
+    const res = await updateMe(data);
+    localStorage.setItem('user', JSON.stringify(res.data.user));
+    setUser(res.data.user);
+    return res;
+  };
+
+  const logout = () => {
+    setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    setUser(null);
-    toast.success('Logged out successfully.');
-  }, []);
-
-  const updateUser = useCallback((updated) => {
-    setUser(updated);
-    localStorage.setItem('user', JSON.stringify(updated));
-  }, []);
-
-  const isAdmin = user?.role === 'admin';
-  const isAuthenticated = !!user;
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAuthenticated, isAdmin, login, register, logout, updateUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        isAuthenticated: !!user,
+        isAdmin: user?.role === 'admin',
+        login,
+        register,
+        updateUser,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
-}
+};

@@ -1,0 +1,13 @@
+# Prometheus scrape config for the ShopVibe backend
+# Backend exposes Prometheus metrics on GET /metrics
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "shopvibe-backend"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8001"]
+        labels:
+          service: "shopvibe-api"

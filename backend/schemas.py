@@ -174,6 +174,8 @@ class OrderOut(BaseModel):
     payment_status: str
     stripe_session_id: Optional[str]
     notes: Optional[str]
+    is_fraud_flagged: bool = False
+    fraud_reason: Optional[str] = None
     created_at: datetime
     items: List[OrderItemOut]
 
@@ -244,3 +246,37 @@ class AdminStats(BaseModel):
     total_revenue: float
     total_products: int
     total_users: int
+
+
+# ── Support tickets ───────────────────────────────────────────────────────────
+class SupportTicketCreate(BaseModel):
+    subject: str = Field(min_length=2, max_length=200)
+    message: str = Field(min_length=2, max_length=5000)
+    order_id: Optional[int] = Field(None, gt=0)
+
+
+class SupportTicketOut(BaseModel):
+    id: int
+    user_id: int
+    order_id: Optional[int]
+    subject: str
+    message: str
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TicketStatusUpdate(BaseModel):
+    status: str = Field(pattern=r"^(open|resolved)$")
+
+
+# ── Agentic AI ────────────────────────────────────────────────────────────────
+class AIAgentRequest(BaseModel):
+    instruction: str = Field(min_length=2, max_length=2000)
+
+
+class AIAgentResponse(BaseModel):
+    reply: str
+    actions: List[dict]

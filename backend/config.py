@@ -28,6 +28,29 @@ class Settings(BaseSettings):
     app_env: str = "development"
     allowed_origins: str = "http://localhost,http://localhost:3000"
 
+    # Google OAuth 2.0
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:8001/api/auth/google/callback"
+
+    # Frontend URL (used to redirect back after OAuth / external links)
+    frontend_url: str = "http://localhost:3000"
+
+    # Salesforce REST integration (JWT bearer flow)
+    sf_client_id: str = ""
+    sf_client_secret: str = ""
+    sf_username: str = ""
+    sf_private_key: str = ""
+    sf_login_url: str = "https://login.salesforce.com"
+    sf_instance_url: str = ""
+
+    # Agentic AI (OpenAI function/tool calling)
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    # Base URL for OpenAI-compatible providers (free options: Groq, OpenRouter, Ollama, ...).
+    # Leave empty to use the official OpenAI API.
+    openai_base_url: str = ""
+
     @property
     def origins_list(self) -> List[str]:
         return [o.strip() for o in self.allowed_origins.split(",")]

@@ -1,8 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { FiPackage, FiShoppingBag, FiUsers, FiDollarSign, FiPlus, FiEdit2,
-         FiTrash2, FiX, FiSave, FiSearch, FiRefreshCw, FiAlertCircle } from 'react-icons/fi';
+         FiTrash2, FiX, FiSave, FiSearch, FiRefreshCw, FiAlertCircle,
+         FiCloud, FiShield, FiMessageSquare, FiSend, FiTool } from 'react-icons/fi';
 import { getProducts, createProduct, updateProduct, deleteProduct, getCategories } from '../api/products';
-import { adminGetOrders, adminUpdateOrderStatus, adminGetStats } from '../api/orders';
+import { adminGetOrders, adminUpdateOrderStatus, adminGetStats,
+         adminSyncOrderToSalesforce } from '../api/orders';
+import { getTickets, updateTicketStatus } from '../api/tickets';
+import { runAgent } from '../api/ai';
 import Spinner from '../components/common/Spinner';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -300,6 +304,7 @@ function OrdersTab() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(null);
+  const [syncing, setSyncing] = useState(null);
 
   const fetchOrders = () => {
     setLoading(true);
@@ -307,6 +312,18 @@ function OrdersTab() {
   };
 
   useEffect(() => { fetchOrders(); }, []);
+
+  const handleSalesforceSync = async (orderId) => {
+    setSyncing(orderId);
+    try {
+      const res = await adminSyncOrderToSalesforce(orderId);
+      toast.success(res.data.message || 'Synced to Salesforce');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Salesforce sync failed');
+    } finally {
+      setSyncing(null);
+    }
+  };
 
   const handleStatusChange = async (orderId, status) => {
     setUpdating(orderId);
@@ -335,7 +352,7 @@ function OrdersTab() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['Order', 'Customer', 'Items', 'Total', 'Payment', 'Status', 'Date'].map((h) => (
+                {['Order', 'Customer', 'Items', 'Total', 'Payment', 'Status', 'Fraud', 'Date', 'Actions'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     {h}
                   </th>
@@ -371,8 +388,23 @@ function OrdersTab() {
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-3">
+                    {order.is_fraud_flagged ? (
+                      <span className="badge bg-red-100 text-red-600 text-xs" title={order.fraud_reason || ''}>
+                        <FiShield size={11} className="inline mr-1" />Flagged
+                      </span>
+                    ) : (
+                      <span className="text-gray-300 text-xs">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
                     {new Date(order.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => handleSalesforceSync(order.id)} disabled={syncing === order.id}
+                      className="p-1.5 rounded-lg text-emerald-500 hover:bg-emerald-50 transition-colors" title="Sync to Salesforce">
+                      {syncing === order.id ? <Spinner size="sm" /> : <FiCloud size={15} />}
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -387,10 +419,180 @@ function OrdersTab() {
   );
 }
 
+// ── Tickets Tab ───────────────────────────────────────────────────────────────
+function TicketsTab() {
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(null);
+
+  const fetchTickets = () => {
+    setLoading(true);
+    getTickets().then((r) => setTickets(r.data)).catch(console.error).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchTickets(); }, []);
+
+  const handleStatusToggle = async (ticket) => {
+    const next = ticket.status === 'resolved' ? 'open' : 'resolved';
+    setUpdating(ticket.id);
+    try {
+      await updateTicketStatus(ticket.id, next);
+      setTickets((prev) => prev.map((t) => t.id === ticket.id ? { ...t, status: next } : t));
+      toast.success(next === 'resolved' ? 'Ticket resolved' : 'Ticket reopened');
+    } catch {
+      toast.error('Update failed');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-end mb-5">
+        <button onClick={fetchTickets} className="btn-secondary gap-1.5 text-sm px-4">
+          <FiRefreshCw size={14} /> Refresh
+        </button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-12"><Spinner size="lg" /></div>
+      ) : (
+        <div className="space-y-3">
+          {tickets.map((t) => (
+            <div key={t.id} className="flex items-start justify-between gap-4 border border-gray-100 rounded-xl p-4 hover:bg-gray-50 transition-colors">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-gray-800 text-sm">#{t.id} · {t.subject}</p>
+                  <span className={clsx('badge text-xs', t.status === 'resolved'
+                    ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700')}>
+                    {t.status}
+                  </span>
+                  {t.order_id && (
+                    <span className="badge bg-gray-100 text-gray-500 text-xs">order #{t.order_id}</span>
+                  )}
+                </div>
+                <p className="text-gray-500 text-sm mt-1">{t.message}</p>
+                <p className="text-gray-400 text-xs mt-2">
+                  From user #{t.user_id} · {new Date(t.created_at).toLocaleString()}
+                </p>
+              </div>
+              <button onClick={() => handleStatusToggle(t)} disabled={updating === t.id}
+                className={clsx('btn text-xs px-3 py-1.5 shrink-0', t.status === 'resolved' ? 'btn-secondary' : 'btn-primary')}>
+                {updating === t.id ? <Spinner size="sm" /> : t.status === 'resolved' ? 'Reopen' : 'Resolve'}
+              </button>
+            </div>
+          ))}
+          {tickets.length === 0 && (
+            <div className="text-center py-10 text-gray-400">No support tickets yet.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── AI Agent Tab ──────────────────────────────────────────────────────────────
+function AIAgentTab() {
+  const [instruction, setInstruction] = useState('');
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleRun = async (e) => {
+    e.preventDefault();
+    if (!instruction.trim()) { toast.error('Describe what the agent should do'); return; }
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await runAgent(instruction.trim());
+      setResult(res.data);
+      toast.success('Agent finished');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Agent failed to run');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const EXAMPLES = [
+    'Inspect order #1 and summarize its status',
+    'Flag order #2 as fraudulent — reason: unusual payment method',
+    'Advance order #3 to shipped',
+    'Draft a friendly response about order #4',
+    'Read the latest support ticket',
+  ];
+
+  return (
+    <div>
+      <div className="mb-4">
+        <p className="text-sm text-gray-500 mb-2">
+          The agent can read orders &amp; tickets and take actions: <strong>flag fraud</strong>,{' '}
+          <strong>update status</strong>, and <strong>draft responses</strong>. It replies with a
+          summary plus the list of actions it performed.
+        </p>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {EXAMPLES.map((ex) => (
+            <button key={ex} onClick={() => setInstruction(ex)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-gray-500 hover:bg-primary-50 hover:text-primary-700 hover:border-primary-200 transition-colors">
+              {ex}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <form onSubmit={handleRun} className="mb-6">
+        <textarea value={instruction} onChange={(e) => setInstruction(e.target.value)}
+          rows={3} placeholder="Tell the agent what to do… (e.g. “Check order #1 and flag it if it looks fraudulent”)"
+          className="input text-sm resize-none w-full" />
+        <div className="flex justify-end mt-3">
+          <button type="submit" disabled={running}
+            className="btn-primary gap-2 text-sm px-6 py-2.5">
+            <FiSend size={15} /> {running ? 'Thinking…' : 'Run Agent'}
+          </button>
+        </div>
+      </form>
+
+      {running && (
+        <div className="flex items-center gap-3 text-gray-500 text-sm py-6">
+          <Spinner size="md" /> Agent is working…
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-4">
+          <div className="border border-primary-100 bg-primary-50 rounded-xl p-4">
+            <p className="text-xs font-semibold text-primary-600 uppercase tracking-wide mb-2">Agent reply</p>
+            <p className="text-gray-800 text-sm leading-relaxed">{result.reply}</p>
+          </div>
+          {result.actions.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Actions taken</p>
+              <div className="space-y-2">
+                {result.actions.map((a, i) => (
+                  <div key={i} className="border border-gray-100 rounded-xl p-3 bg-gray-50">
+                    <p className="text-sm font-semibold text-gray-700">
+                      <FiTool size={13} className="inline mr-1.5 text-primary-600" />
+                      {a.tool}
+                      <span className="text-gray-400 font-normal ml-2">{JSON.stringify(a.args)}</span>
+                    </p>
+                    <pre className="text-xs text-gray-500 mt-1.5 whitespace-pre-wrap font-mono">
+                      {JSON.stringify(a.result, null, 2)}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'products', label: 'Products', icon: FiPackage },
-  { id: 'orders',   label: 'Orders',   icon: FiShoppingBag },
+  { id: 'products', label: 'Products',   icon: FiPackage },
+  { id: 'orders',   label: 'Orders',     icon: FiShoppingBag },
+  { id: 'tickets',  label: 'Tickets',    icon: FiMessageSquare },
+  { id: 'ai',       label: 'AI Agent',   icon: FiShield },
 ];
 
 export default function AdminPage() {
@@ -449,6 +651,8 @@ export default function AdminPage() {
         <div className="bg-white rounded-2xl shadow-card p-6">
           {activeTab === 'products' && <ProductsTab categories={categories} />}
           {activeTab === 'orders' && <OrdersTab />}
+          {activeTab === 'tickets' && <TicketsTab />}
+          {activeTab === 'ai' && <AIAgentTab />}
         </div>
       </div>
     </div>

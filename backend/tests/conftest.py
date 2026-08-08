@@ -12,6 +12,18 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-32chars-for-tests!")
 os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_placeholder")
 os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_placeholder")
 os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("FRONTEND_URL", "http://localhost:3000")
+# Keep tests hermetic: never let real credentials from backend/.env leak in.
+os.environ.setdefault("GOOGLE_CLIENT_ID", "")
+os.environ.setdefault("GOOGLE_CLIENT_SECRET", "")
+os.environ.setdefault("GOOGLE_REDIRECT_URI", "")
+os.environ.setdefault("OPENAI_API_KEY", "")
+os.environ.setdefault("SF_CLIENT_ID", "")
+os.environ.setdefault("SF_CLIENT_SECRET", "")
+os.environ.setdefault("SF_USERNAME", "")
+os.environ.setdefault("SF_PRIVATE_KEY", "")
+os.environ.setdefault("SF_LOGIN_URL", "")
+os.environ.setdefault("SF_INSTANCE_URL", "")
 
 # NOW import app modules (after env vars are set)
 import pytest                                # noqa: E402

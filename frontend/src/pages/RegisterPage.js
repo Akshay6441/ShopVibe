@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FiUser, FiMail, FiLock, FiEye, FiEyeOff, FiArrowRight, FiCheck } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import { BACKEND_URL } from '../api/client';
 import useCartStore from '../store/cartStore';
+import GoogleIcon from '../components/common/GoogleIcon';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 
@@ -55,6 +57,21 @@ export default function RegisterPage() {
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">Create your account</h1>
             <p className="text-gray-500 text-sm mt-1">Join thousands of happy shoppers</p>
+          </div>
+
+          {/* Google OAuth */}
+          <a
+            href={`${BACKEND_URL}/api/auth/google/login`}
+            className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50 transition-colors mb-4"
+          >
+            <GoogleIcon />
+            Continue with Google
+          </a>
+
+          <div className="flex items-center gap-3 mb-4">
+            <span className="flex-1 h-px bg-gray-200" />
+            <span className="text-xs text-gray-400 font-medium">or sign up with email</span>
+            <span className="flex-1 h-px bg-gray-200" />
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
