@@ -1,0 +1,85 @@
+# Render Blueprint for ShopVibe
+# Deploy: https://dashboard.render.com  →  New  →  Blueprint  →  select this repo
+# Docs:   https://render.com/docs/blueprint-spec
+
+databases:
+  - name: shopvibe-db
+    plan: free            # Free tier (1 GB, expires 30 days). Upgrade to basic-256mb (~$7/mo) before it expires.
+    postgresMajorVersion: "15"
+    region: oregon
+
+services:
+  # ── Backend: FastAPI ──────────────────────────────────────────────────────────
+  - type: web
+    name: shopvibe-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shopvibe-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true          # Random JWT secret, generated once on creation
+      - key: APP_ENV
+        value: production
+      # Allow CORS from the frontend + use it for OAuth redirects
+      - key: ALLOWED_ORIGINS
+        fromService:
+          name: shopvibe-frontend
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: FRONTEND_URL
+        fromService:
+          name: shopvibe-frontend
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      # ── Optional integrations (uncomment to enable; blank = feature off) ──
+      # Google OAuth  →  https://console.cloud.google.com
+      # - key: GOOGLE_CLIENT_ID
+      #   sync: false
+      # - key: GOOGLE_CLIENT_SECRET
+      #   sync: false
+      # - key: GOOGLE_REDIRECT_URI
+      #   value: https://shopvibe-backend.onrender.com/api/auth/google/callback
+      # Salesforce REST (JWT bearer)
+      # - key: SF_CLIENT_ID
+      #   sync: false
+      # - key: SF_CLIENT_SECRET
+      #   sync: false
+      # - key: SF_USERNAME
+      #   sync: false
+      # - key: SF_PRIVATE_KEY
+      #   sync: false
+      # Agentic AI (OpenAI or any OpenAI-compatible provider, e.g. Groq/OpenRouter)
+      # - key: OPENAI_API_KEY
+      #   sync: false
+      # - key: OPENAI_MODEL
+      #   value: gpt-4o-mini
+
+  # ── Frontend: React (nginx) ───────────────────────────────────────────────────
+  - type: web
+    name: shopvibe-frontend
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    healthCheckPath: /
+    envVars:
+      # nginx listens on 80, so tell Render to route traffic there (default is 10000)
+      - key: PORT
+        value: 80
+      # Baked into the React bundle at build time → points at the backend's public URL.
+      # Render injects service env vars as Docker build args.
+      - key: REACT_APP_BACKEND_URL_ARG
+        fromService:
+          name: shopvibe-backend
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
