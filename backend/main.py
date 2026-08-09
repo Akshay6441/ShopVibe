@@ -72,7 +72,10 @@ async def lifespan(app_instance):  # noqa: F841
     if settings.app_env != "test" and (
         "postgresql" in settings.database_url or "postgres" in settings.database_url
     ):
-        _init_db()
+        try:
+            _init_db()
+        except Exception:
+            logger.exception("DB init failed at startup — endpoints will report DB errors per-request")
     yield
 
 app = FastAPI(

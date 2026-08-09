@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "static",
   "buildCommand": "cd frontend && npm ci --prefer-offline && CI=false npm run build",
   "outputDirectory": "frontend/build",
   "functions": {
