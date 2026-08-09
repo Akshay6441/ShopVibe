@@ -1,6 +1,12 @@
 import axios from 'axios';
 
-const BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
+// Production builds default to same-origin relative paths (frontend + API are
+// served from one origin on Vercel). Local dev uses the FastAPI dev server.
+const BASE_URL = process.env.REACT_APP_BACKEND_URL
+  ? process.env.REACT_APP_BACKEND_URL.replace(/\/+$/, '')
+  : process.env.NODE_ENV === 'production'
+    ? ''
+    : 'http://localhost:8001';
 
 export const BACKEND_URL = BASE_URL;
 
