@@ -1,0 +1,4 @@
+{
+  "build_command": "npm ci && CI=false npm run build",
+  "output_dir": "build"
+}

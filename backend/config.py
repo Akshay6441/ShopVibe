@@ -26,7 +26,10 @@ class Settings(BaseSettings):
 
     # App
     app_env: str = "development"
-    allowed_origins: str = "http://localhost,http://localhost:3000"
+    # Comma-separated list, or "*" to allow any origin (auth uses JWT Bearer
+    # headers, not cookies, so a wildcard is safe). Deployed frontends (Zeabur,
+    # Vercel, Render) live on different origins than the API.
+    allowed_origins: str = "*"
 
     # Google OAuth 2.0
     google_client_id: str = ""

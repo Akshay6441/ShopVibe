@@ -86,9 +86,13 @@ app = FastAPI(
 )
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(MetricsMiddleware)
+_origins = settings.origins_list
 app.add_middleware(
-    CORSMiddleware, allow_origins=settings.origins_list,
-    allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware, allow_origins=_origins,
+    # A wildcard origin can't be combined with credentials, and this app uses
+    # JWT Bearer headers (not cookies), so credentials are only enabled when
+    # an explicit origin allow-list is configured.
+    allow_credentials="*" not in _origins, allow_methods=["*"], allow_headers=["*"],
 )
 
 # ── Health ────────────────────────────────────────────────────────────────────
