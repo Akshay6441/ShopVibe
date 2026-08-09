@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 import models
 from config import settings
+from integrations import salesforce
 from logger import logger
 
 MAX_TOOL_ROUNDS = 5
@@ -168,6 +169,7 @@ def handle_update_order_status(db: Session, args: dict) -> dict:
     order.status = new_status
     db.commit()
     logger.info("AI agent set order %s status to %s", order.id, status)
+    salesforce.sync_order(order, db=db)
     return {"ok": True, "order_id": order.id, "status": status}
 
 

@@ -173,6 +173,7 @@ class OrderOut(BaseModel):
     payment_method: str
     payment_status: str
     stripe_session_id: Optional[str]
+    salesforce_id: Optional[str] = None
     notes: Optional[str]
     is_fraud_flagged: bool = False
     fraud_reason: Optional[str] = None

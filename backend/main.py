@@ -42,10 +42,27 @@ END $$;
             _conn.execute(_sql(_CREATE_ENUMS))
             _conn.commit()
     Base.metadata.create_all(bind=engine)
+    _migrate(engine)
     try:
         run_seed()
     except Exception as exc:
         logger.info("Seed skipped: %s", exc)
+
+
+def _migrate(db_engine) -> None:
+    """Idempotent column migrations for databases created before new columns existed."""
+    is_postgres = "postgresql" in settings.database_url or "postgres" in settings.database_url
+    if not is_postgres:
+        return
+    statements = [
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS salesforce_id VARCHAR(18)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS sf_contact_id VARCHAR(18)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS sf_account_id VARCHAR(18)",
+    ]
+    with db_engine.connect() as _conn:
+        for stmt in statements:
+            _conn.execute(_sql(stmt))
+        _conn.commit()
 
 
 @asynccontextmanager
@@ -309,7 +326,7 @@ def create_order(payload: schemas.OrderCreate, db: Session = Depends(get_db),
     db.query(models.CartItem).filter(models.CartItem.user_id == current_user.id).delete()
     db.commit(); db.refresh(order)
     logger.info("Order #%d created by user %d — $%.2f", order.id, current_user.id, total)
-    salesforce.sync_order(order)
+    salesforce.sync_order(order, db)
     return order
 
 @app.get("/api/orders", response_model=List[schemas.OrderOut], tags=["Orders"])
@@ -371,6 +388,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             order.payment_status = "paid"; order.status = models.OrderStatus.processing
             db.commit()
             logger.info("Payment confirmed for order #%d", order.id)
+            salesforce.sync_order(order, db)
     return {"received": True}
 
 # ── Wishlist ────────────────────────────────────────────────────────────────────
@@ -447,6 +465,7 @@ def admin_update_order(order_id: int, payload: schemas.OrderStatusUpdate,
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order: raise HTTPException(404, "Order not found")
     order.status = payload.status; db.commit(); db.refresh(order)
+    salesforce.sync_order(order, db)
     return order
 
 @app.get("/api/admin/stats", response_model=schemas.AdminStats, tags=["Admin"])
@@ -465,7 +484,7 @@ def admin_sync_order_to_salesforce(order_id: int, db: Session = Depends(get_db),
         raise HTTPException(503, "Salesforce is not configured (set SF_* env vars)")
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order: raise HTTPException(404, "Order not found")
-    if salesforce.sync_order(order):
+    if salesforce.sync_order(order, db):
         return {"message": f"Order #{order.id} synced to Salesforce"}
     raise HTTPException(502, "Salesforce sync failed — see server logs")
 
