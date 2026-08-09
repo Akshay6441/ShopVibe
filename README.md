@@ -9,6 +9,14 @@ Extended with real-world integrations:
 - **Agentic AI** — an admin agent that reads orders/tickets and takes actions (flag fraud, update status, draft replies)
 - **Observability** — Prometheus + Grafana dashboard, backend `/metrics` endpoint
 
+## Live Preview
+
+> **Temporary link** (Cloudflare quick tunnel from the dev machine — works only while the tunnel is running):
+>
+> **https://periods-taste-upc-taxes.trycloudflare.com**
+>
+> Demo logins: `demo@shop.com` / `demo123` (customer) · `admin@shop.com` / `admin123` (admin)
+
 ---
 
 ## Quick Start
@@ -248,3 +256,27 @@ npm run build   # or: npm start
 2. **Frontend** — production build
 3. **Docker** — builds both images with BuildKit caching
 4. **Deploy** — on pushes to `main`, triggers a **Render** webhook if `RENDER_DEPLOY_HOOK_URL` is set as a GitHub secret (create a Render Blueprint/webhook for your live demo and paste the hook URL into the repo secrets to enable auto-deploy)
+
+---
+
+## Deploy to Render (live link)
+
+The repo ships a [`render.yaml`](render.yaml) Blueprint that provisions the whole stack — Postgres, backend, and frontend — in one go:
+
+1. Push this repo to GitHub (it must be your own account's repo).
+2. Go to [dashboard.render.com](https://dashboard.render.com) → **New** → **Blueprint**.
+3. Connect GitHub and pick this repo (branch `main`). Render will preview the 3 resources it creates.
+4. Click **Apply** — Render creates the database, then builds & deploys the backend and frontend.
+
+After the first deploy completes you get two public URLs:
+
+| Service | URL |
+|---------|-----|
+| Shop (frontend) | `https://shopvibe-frontend.onrender.com` |
+| API docs        | `https://shopvibe-backend.onrender.com/api/docs` |
+
+Login with `admin@shop.com` / `admin123` (auto-seeded). Pushes to `main` redeploy automatically (Render auto-deploy supersedes the CI webhook step).
+
+Notes:
+- **Free tier caveats**: web services spin down after ~15 min idle (cold start on first visit), and the **free Postgres expires after 30 days** — upgrade it to `basic-256mb` before then to keep the demo alive. Swap `plan: free` in `render.yaml` and re-sync if you'd rather start paid.
+- Optional integrations (Google OAuth, Salesforce, AI agent) start disabled; uncomment the relevant `envVars` in `render.yaml` to enable them.
