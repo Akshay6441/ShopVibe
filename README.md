@@ -276,7 +276,3 @@ After the first deploy completes you get two public URLs:
 | API docs        | `https://shopvibe-backend.onrender.com/api/docs` |
 
 Login with `admin@shop.com` / `admin123` (auto-seeded). Pushes to `main` redeploy automatically (Render auto-deploy supersedes the CI webhook step).
-
-Notes:
-- **Free tier caveats**: web services spin down after ~15 min idle (cold start on first visit), and the **free Postgres expires after 30 days** — upgrade it to `basic-256mb` before then to keep the demo alive. Swap `plan: free` in `render.yaml` and re-sync if you'd rather start paid.
-- Optional integrations (Google OAuth, Salesforce, AI agent) start disabled; uncomment the relevant `envVars` in `render.yaml` to enable them.
