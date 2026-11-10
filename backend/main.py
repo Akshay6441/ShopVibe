@@ -5,7 +5,10 @@ _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
-import stripe
+try:
+    import stripe
+except ImportError:
+    stripe = None
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +29,8 @@ from seed import seed as run_seed
 from integrations import salesforce
 
 setup_logging("INFO" if settings.app_env == "production" else "DEBUG")
-stripe.api_key = settings.stripe_secret_key
+if stripe:
+    stripe.api_key = settings.stripe_secret_key
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
