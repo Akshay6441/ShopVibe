@@ -1,3 +1,10 @@
+import os
+import sys
+
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
+
 import stripe
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Query, Request
@@ -533,3 +540,29 @@ def ai_agent(payload: schemas.AIAgentRequest, db: Session = Depends(get_db),
     result = run_agent(db, payload.instruction)
     logger.info("AI agent ran: %d actions for %r", len(result["actions"]), payload.instruction)
     return result
+
+
+# ── Frontend SPA Fallback ──────────────────────────────────────────────────────
+_FRONTEND_BUILD = os.path.join(_BACKEND_DIR, "..", "frontend", "build")
+
+@app.get("/", include_in_schema=False)
+async def serve_root():
+    index_path = os.path.join(_FRONTEND_BUILD, "index.html")
+    if os.path.isfile(index_path):
+        from fastapi.responses import FileResponse
+        return FileResponse(index_path)
+    return {"message": "ShopVibe API is running", "docs": "/api/docs"}
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa_catchall(full_path: str):
+    if full_path.startswith("api/") or full_path == "api" or full_path.startswith("metrics"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    file_path = os.path.join(_FRONTEND_BUILD, full_path)
+    if full_path and os.path.isfile(file_path):
+        from fastapi.responses import FileResponse
+        return FileResponse(file_path)
+    index_path = os.path.join(_FRONTEND_BUILD, "index.html")
+    if os.path.isfile(index_path):
+        from fastapi.responses import FileResponse
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="Not Found")
