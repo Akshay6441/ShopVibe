@@ -5,12 +5,13 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "excludeFiles": "{backend/tests/**,**/*.test.py,frontend/**,monitoring/**,compose.yaml,render.yaml}"
+      "excludeFiles": "{backend/tests/**,**/*.test.py,monitoring/**,compose.yaml,render.yaml}"
     }
   },
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" },
-    { "source": "/api", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index" },
+    { "src": "/api", "dest": "/api/index" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
