@@ -11,10 +11,4 @@ _BACKEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "b
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
-try:
-    from main import app  # noqa: E402, F401
-except Exception:
-    import traceback
-
-    traceback.print_exc()
-    raise
+from main import app  # noqa: E402, F401
