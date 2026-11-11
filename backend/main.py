@@ -10,13 +10,14 @@ try:
 except ImportError:
     stripe = None
 from contextlib import asynccontextmanager
+import threading
 from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy import or_, func, text as _sql
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from database import engine, get_db, Base
+from database import engine, get_db, Base, DATABASE_URL, IS_POSTGRES, IS_SQLITE, register_db_init
 import models
 import schemas
 import google_oauth
@@ -37,7 +38,7 @@ if stripe:
 
 def _init_db() -> None:
     """Create tables + enum types. Skips seeding in test mode."""
-    is_postgres = "postgresql" in settings.database_url or "postgres" in settings.database_url
+    is_postgres = IS_POSTGRES
     if is_postgres:
         _CREATE_ENUMS = """
 DO $$ BEGIN
@@ -62,9 +63,40 @@ END $$;
             logger.info("Seed skipped: %s", exc)
 
 
+_db_lock = threading.Lock()
+_db_initialized = False
+
+
+def _needs_db_init() -> bool:
+    if settings.app_env == "test":
+        return False
+    if not _db_initialized:
+        return True
+    if not IS_SQLITE or DATABASE_URL in ("sqlite://", "sqlite:///:memory:"):
+        return False
+    db_file = DATABASE_URL.replace("sqlite:///", "", 1)
+    return not os.path.exists(db_file)
+
+
+def _ensure_db_ready() -> None:
+    """Thread-safe one-time schema init + seed for non-test environments."""
+    global _db_initialized
+    if not _needs_db_init():
+        return
+    with _db_lock:
+        if not _needs_db_init():
+            return
+        _init_db()
+        _db_initialized = True
+
+
+if settings.app_env != "test":
+    register_db_init(_ensure_db_ready)
+
+
 def _migrate(db_engine) -> None:
     """Idempotent column migrations for databases created before new columns existed."""
-    is_postgres = "postgresql" in settings.database_url or "postgres" in settings.database_url
+    is_postgres = IS_POSTGRES
     if not is_postgres:
         return
     statements = [
@@ -82,11 +114,9 @@ def _migrate(db_engine) -> None:
 async def lifespan(app_instance):  # noqa: F841
     # DB init + seeding only in prod/dev — never during tests (test env
     # creates its own schema via conftest, seeding would pollute it)
-    if settings.app_env != "test" and (
-        "postgresql" in settings.database_url or "postgres" in settings.database_url
-    ):
+    if settings.app_env != "test":
         try:
-            _init_db()
+            _ensure_db_ready()
         except Exception:
             logger.exception("DB init failed at startup — endpoints will report DB errors per-request")
     yield

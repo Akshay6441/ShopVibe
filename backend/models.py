@@ -1,9 +1,8 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from database import Base
+from database import Base, IS_SQLITE
 import enum
-import os
 
 
 class UserRole(str, enum.Enum):
@@ -24,8 +23,8 @@ class TicketStatus(str, enum.Enum):
     resolved = "resolved"
 
 
-# Use native_enum=False for SQLite (tests); native enums for Postgres (production)
-_is_sqlite = "sqlite" in os.getenv("DATABASE_URL", "postgresql")
+# Use native_enum=False for SQLite (tests/fallback); native enums for Postgres
+_is_sqlite = IS_SQLITE
 _UserRoleEnum = Enum(UserRole, native_enum=not _is_sqlite, create_type=not _is_sqlite)
 _OrderStatusEnum = Enum(OrderStatus, native_enum=not _is_sqlite, create_type=not _is_sqlite)
 _TicketStatusEnum = Enum(TicketStatus, native_enum=not _is_sqlite, create_type=not _is_sqlite)
