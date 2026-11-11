@@ -7,11 +7,5 @@
       "maxDuration": 60,
       "excludeFiles": "{backend/tests/**,**/*.test.py,monitoring/**,compose.yaml,render.yaml}"
     }
-  },
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index" },
-    { "src": "/api", "dest": "/api/index" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
-  ]
+  }
 }
