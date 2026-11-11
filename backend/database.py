@@ -1,9 +1,12 @@
+import logging
 import os
 import tempfile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import StaticPool
 from config import settings
+
+_log = logging.getLogger("shopvibe")
 
 
 def _normalize_db_url(url: str) -> str:
@@ -47,25 +50,34 @@ def _build_engine():
         )
 
     is_vercel = bool(os.getenv("VERCEL"))
-    is_default_local_pg = (not db_url) or ("localhost" in db_url) or ("127.0.0.1" in db_url)
+    is_local_or_docker_pg = (
+        (not db_url)
+        or ("localhost" in db_url)
+        or ("127.0.0.1" in db_url)
+        or ("@db:" in db_url)
+        or ("@db/" in db_url)
+        or ("@postgres:" in db_url)
+        or ("@postgres/" in db_url)
+    )
 
-    # Skip waiting on localhost Postgres inside Vercel serverless containers
-    if db_url and not (is_vercel and is_default_local_pg):
+    # Skip waiting on Docker/local Postgres hosts inside Vercel serverless containers
+    if db_url and not (is_vercel and is_local_or_docker_pg):
+        pg_engine = None
         try:
-            connect_args = {"connect_timeout": 3} if is_default_local_pg else {}
             pg_engine = create_engine(
                 db_url,
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
-                connect_args=connect_args,
+                connect_args={"connect_timeout": 5},
             )
             with pg_engine.connect():
                 pass
             return db_url, pg_engine
-        except Exception:
-            if not is_default_local_pg:
-                raise
+        except Exception as exc:
+            if pg_engine is not None:
+                pg_engine.dispose()
+            _log.warning("Postgres unavailable (%s); falling back to SQLite", exc)
 
     fallback_url = _sqlite_fallback_url()
     return fallback_url, create_engine(
